@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bart Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0f14; --card:#121821; --muted:#9fb2c9; --text:#e7f0fb;
+  --accent:#49b37b; --accent-2:#6db8ff; --danger:#ff6b6b; --ring:rgba(109,184,255,.45);
+  --shadow:0 10px 30px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+html, body{height:100%; margin:0; font-family:Inter,sans-serif; background:var(--bg); color:var(--text);}
+.wrap{display:grid; grid-template-columns:340px 1fr; gap:16px; padding:16px; height:100%;}
+@media (max-width:900px){.wrap{grid-template-columns:1fr; grid-auto-rows:min-content 1fr;}}
+.card{background:var(--card); border-radius:18px; box-shadow:var(--shadow);}
+.card.pad{padding:16px;}
+.title{font-weight:800;}
+.muted{color:var(--muted);}
+.row{display:flex; gap:12px; align-items:center;}
+.col{display:flex; flex-direction:column; gap:8px;}
+.btn{appearance:none; border:0; padding:10px 14px; border-radius:12px; font-weight:600; cursor:pointer; background:#1c2430; color:var(--text); box-shadow:var(--shadow);}
+.btn:hover{filter:brightness(1.05);}
+.btn.accent{background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#0a0d12;}
+.btn.ghost{background:transparent; border:1px solid #2a3444;}
+.btn.danger{background:#2a1a1a;color:#ffd4d4;border:1px solid #492c2c;}
+.field{display:flex; flex-direction:column; gap:6px;}
+.field input,.field textarea{background:#0b121b;color:var(--text);border:1px solid #1d2736;border-radius:12px;padding:10px 12px;outline:none;box-shadow: inset 0 0 0 2px transparent, var(--shadow);}
+.field input:focus,.field textarea:focus{box-shadow: inset 0 0 0 2px var(--ring), var(--shadow);}
+.pill{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#0b121b; border:1px solid #1d2736; border-radius:999px; font-size:12px;}
+.kicker{font-size:12px; text-transform:uppercase; letter-spacing:.2em; color:#a4bedc;}
+.map{height:100%; min-height:350px; border-radius:18px; overflow:hidden;}
+.timeline{display:flex; flex-direction:column; gap:8px; max-height:40vh; overflow:auto; padding-right:6px;}
+.timeline .item{background:#0b121b;border:1px solid #1d2736;border-radius:14px;padding:10px 12px;}
+.modal{position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; padding:16px;}
+.modal.show{display:flex;}
+.sheet{background:#faf7ef;color:#1a1b1f;width:900px; max-width:100%; border-radius:18px; padding:28px; box-shadow:0 20px 60px rgba(0,0,0,.35);}
+.cert{border:8px double #2f3b4d; padding:28px; background:linear-gradient(180deg,#fff,#f5efe3); background-size:100% 100%;}
+.cert h1{font-family:Georgia, serif; text-align:center; font-size:40px; margin:0 0 4px;}
+.cert h2{font-family:Georgia, serif; text-align:center; font-size:22px; margin:0 0 16px; color:#344563;}
+.cert .seal{width:100px;height:100px;border-radius:50%;border:6px solid #344563;display:flex;align-items:center;justify-content:center;font-size:40px;margin:auto;}
+.cert .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;}
+.cert .sig{margin-top:16px;display:flex;justify-content:space-between;align-items:center;}
+.cert .line{border-bottom:2px solid #3a4a63;width:60%;}
+@media print{.modal{position:static;background:none}.sheet{box-shadow:none}.hide-on-print{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="col">
+    <div class="card pad">
+      <div class="kicker">Dino Tracker</div>
+      <div class="title" id="siteTitle">Bart the Brachiosaurus</div>
+      <div class="muted small" id="siteSubtitle">Adopted by <span id="ownerName">Gina</span> on <span id="adoptedDate">—</span></div>
+      <div class="row" style="flex-wrap:wrap; gap:8px; margin-top:8px;">
+        <span class="pill"><span>📍</span><span id="lastLocText">No locations yet</span></span>
+        <span class="pill"><span>🕒</span><span id="lastSeen">—</span></span>
+        <span class="pill"><span>🧭</span><span id="latlng">—</span></span>
+        <button class="btn ghost" id="btnCertificate">Certificate</button>
+      </div>
+    </div>
+
+    <div class="card pad">
+      <div class="title">Field Journal</div>
+      <button class="btn ghost small" id="btnExport">Export JSON</button>
+      <button class="btn ghost small" id="btnImport">Import JSON</button>
+      <div id="emptyJournal" class="muted small">No updates yet.</div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+
+    <div class="card pad" id="adminCard">
+      <div class="title">Admin Mode</div>
+      <button class="btn" id="btnToggleAdmin">Unlock</button>
+      <div id="adminLocked"><div class="muted small">Click <b>Unlock</b> and enter the password to add Bart.</div></div>
+      <div id="adminPanel" class="hidden">
+        <div class="field"><label>Latitude</label><input id="lat" type="number" step="any" /></div>
+        <div class="field"><label>Longitude</label><input id="lng" type="number" step="any" /></div>
+        <div class="field"><label>Note</label><textarea id="note" rows="2"></textarea></div>
+        <button class="btn accent" id="btnAdd">Add Update</button>
+        <button class="btn ghost" id="btnUseNow">Use Current Time</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card pad" style="display:flex; flex-direction:column;">
+    <div id="map" class="map"></div>
+  </div>
+</div>
+
+<div class="modal" id="modalCert">
+  <div class="sheet">
+    <button class="btn ghost" id="btnCloseCert">Close</button>
+    <div class="cert">
+      <h1>Certificate of Dinosaur Adoption</h1>
+      <h2>Issued by the Dino Den Society</h2>
+      <div class="seal">🦖</div>
+      <p style="text-align:center;">This certifies that <b id="certOwner">—</b> has adopted <b id="certDino">—</b>, a <b id="certSpecies">—</b>.</p>
+      <div class="grid">
+        <p><b>Date:</b> <span id="certDate">—</span></p>
+        <p><b>Fun Fact:</b> <span id="certFact">Brachiosaurus could grow over 80 feet long!</span></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const CONFIG={
+  siteTitle:"Bart Tracker",
+  dinoName:"Bart",
+  species:"Brachiosaurus",
+  ownerName:"Gina",
+  adoptionDate:new Date().toISOString().slice(0,10),
+  adminPassword:"dino123",
+  funFact:"Brachiosaurus could grow over 80 feet long!"
+};
+
+// ===== PRELOADED UPDATES =====
+let DATA={
+  dino:{name:CONFIG.dinoName,species:CONFIG.species,owner:CONFIG.ownerName,adoptionDate:CONFIG.adoptionDate},
+  updates:[
+    {lat:32.7157,lng:-117.1611,ts:"2025-09-01T10:00:00Z",note:"Bart in San Diego!"},
+    {lat:32.7157,lng:-117.1611,ts:"2025-09-05T12:00:00Z",note:"San Diego stroll."},
+    {lat:32.7157,lng:-117.1611,ts:"2025-09-11T18:00:00Z",note:"Last day in San Diego."},
+    {lat:34.0522,lng:-118.2437,ts:"2025-09-12T20:00:00Z",note:"Visiting LA to see Le Sserafim!"},
+    {lat:32.7157,lng:-117.1611,ts:"2025-09-13T09:00:00Z",note:"Back in San Diego."},
+    {lat:32.7157,lng:-117.1611,ts:"2025-09-15T14:00:00Z",note:"Exploring Balboa Park."},
+    {lat:32.7157,lng:-117.1611,ts:"2025-09-20T11:00:00Z",note:"Lunch by the harbor."}
+  ]
+};
+
+let ADMIN_UNLOCKED=false, MAP, PATH, LAST_MARKER;
+
+function $(id){return document.getElementById(id);}
+function fmtTime(iso){return new Date(iso).toLocaleString();}
+function updateHeader(){
+  $("siteTitle").textContent=CONFIG.siteTitle;
+  $("ownerName").textContent=DATA.dino.owner;
+  $("adoptedDate").textContent=DATA.dino.adoptionDate;
+  $("certOwner").textContent=DATA.dino.owner;
+  $("certDino").textContent=DATA.dino.name;
+  $("certSpecies").textContent=DATA.dino.species;
+  $("certDate").textContent=DATA.dino.adoptionDate;
+  $("certFact").textContent=CONFIG.funFact;
+}
+
+function renderTimeline(){
+  const list=$("timeline"); list.innerHTML="";
+  const up=[...DATA.updates].sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+  $("emptyJournal").style.display=up.length?'none':'block';
+  up.forEach(u=>{
+    const div=document.createElement('div'); div.className='item';
+    div.innerHTML=`<div class="row" style="justify-content:space-between"><div><b>${fmtTime(u.ts)}</b></div><div class="muted small">${u.lat.toFixed(4)}, ${u.lng.toFixed(4)}</div></div><div style="margin-top:6px">${u.note}</div>`;
+    list.appendChild(div);
+  });
+}
+
+function initMap(){
+  MAP=L.map('map').setView([32.7157,-117.1611],12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(MAP);
+  PATH=L.polyline([], {weight:4,opacity:.9}).addTo(MAP);
+  refreshMap();
+}
+
+function refreshMap(){
+  const coords=DATA.updates.map(u=>[u.lat,u.lng]);
+  PATH.setLatLngs(coords);
+  if(LAST_MARKER) LAST_MARKER.remove();
+  if(coords.length){
+    const last=coords[coords.length-1];
+    LAST_MARKER=L.marker(last,{icon:L.divIcon({className:'dino-pin',html:'🦖',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(MAP)
+      .bindPopup(`<b>${DATA.dino.name}</b><br>${fmtTime(DATA.updates[DATA.updates.length-1].ts)}<br>${DATA.updates[DATA.updates.length-1].note}`).openPopup();
+    MAP.setView(last,12);
+    $("lastLocText").textContent=`Last seen at point #${coords.length}`;
+    $("lastSeen").textContent=fmtTime(DATA.updates[DATA.updates.length-1].ts);
+    $("latlng").textContent=`${last[0].toFixed(4)}, ${last[1].toFixed(4)}`;
+  }
+}
+
+function unlock(){
+  const pass=prompt("Enter Admin Password:");
+  if(pass===CONFIG.adminPassword){ADMIN_UNLOCKED=true; $("adminPanel").classList.remove('hidden'); $("adminLocked").classList.add('hidden'); alert('Admin unlocked!');}
+  else alert('Wrong password'); 
+}
+
+function addUpdate(){
+  const lat=parseFloat($("lat").value), lng=parseFloat($("lng").value);
+  if(Number.isNaN(lat)||Number.isNaN(lng)){alert('Please set latitude and longitude.'); return;}
+  const note=$("note").value.trim();
+  DATA.updates.push({lat,lng,ts:new Date().toISOString(),note});
+  renderTimeline(); refreshMap();
+  $("note").value=''; $("lat").value=''; $("lng").value='';
+}
+
+window.addEventListener('DOMContentLoaded',()=>{
+  $("btnToggleAdmin").onclick=unlock;
+  $("btnAdd").onclick=addUpdate;
+  $("btnExport").onclick=()=>{const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(DATA,null,2)],{type:'application/json'})); a.download='tracks.json'; a.click();}
+  $("btnImport").onclick=()=>{const inp=document.createElement('input'); inp.type='file'; inp.accept='.json'; inp.onchange=async()=>{const file=inp.files[0]; const text=await file.text(); DATA=JSON.parse(text); renderTimeline(); refreshMap(); updateHeader();}; inp.click();}
+  $("btnCertificate").onclick=()=>$("modalCert").classList.add('show');
+  $("btnCloseCert").onclick=()=>$("modalCert").classList.remove('show');
+  initMap(); updateHeader(); renderTimeline(); 
+});
+</script>
+</body>
+</html>
